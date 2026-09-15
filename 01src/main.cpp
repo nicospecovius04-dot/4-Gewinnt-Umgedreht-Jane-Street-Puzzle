@@ -53,7 +53,7 @@ class Spalte {
     return !KannPlatzieren();
   }
 
-  [[nodiscard]] int Höhe() const {
+  [[nodiscard]] size_t Höhe() const {
     return überbleibend_ + farben_.size();
   }
 
@@ -106,10 +106,10 @@ class Brett {
   }
 
   int PrüfeRichtungen(const int xEbene,
-      const int yEbene,
-      const int zeile, //i
-      const int spalte,
-      const TokenFarbe token) const {
+      int yEbene,
+      size_t zeile, //i
+      size_t spalte,
+      TokenFarbe token) const {
         if(spalte >= brett_.size()) {
           return 0;
         }
@@ -129,7 +129,10 @@ class Brett {
       
     
 
-  std::optional<TokenFarbe> WerGewonnen(const int spalte) const {
+  std::optional<TokenFarbe> WerGewonnen(const size_t spalte) const {
+    if(spalte >= brett_.size()) {
+      throw std::out_of_range("Nicht innerhalb des Indexes");
+    }
     const auto brettHöhe = brett_.at(spalte).Höhe();
     const int TokensMindestLänge{4};
     const static std::vector<std::pair<int, int>> richtungen {
@@ -138,18 +141,18 @@ class Brett {
     for(auto i{ 0uz}; i < brettHöhe; i++) { //(O)n; linear wachsend mit Zeilen; (O)n² bei Funktion im Durchlauf - ungefähr
       for(const auto& [xEbene, yEbene] : richtungen){
         if(!brett_.at(spalte).TokenPlatziert(i)) {
-          continue;
+          return std::nullopt; //eh keine Tokens(mehr), somit keine Durchläufe zu prüfen
         }
         const auto token = brett_.at(spalte)[i];
         const auto inZeile = PrüfeRichtungen(xEbene, yEbene, i, spalte, token);
-        if(inZeile == TokensMindestLänge) { return token;}
+        if(inZeile >= TokensMindestLänge) { return token;}
 
       const auto umgekehrteZeile = PrüfeRichtungen(-xEbene, -yEbene, i, spalte, token); //andere Richtung
-      if(umgekehrteZeile == TokensMindestLänge) {
+      if(umgekehrteZeile >= TokensMindestLänge) {
         return token;
       }
       const auto totaleTokenGefunden = umgekehrteZeile + inZeile - 1; // -1 Damit der erste Token nicht dopppel gezählt wird  X X [X] X
-      if(totaleTokenGefunden == TokensMindestLänge) {
+      if(totaleTokenGefunden >= TokensMindestLänge) {
         return token;
       }
     }
@@ -170,7 +173,7 @@ private:
   public:
     Spieler(std::string name, TokenFarbe token) :
     name_(std::move(name)), token_(token) {}
-    [[nodiscard]] std::string HoleNamen() const { return name_;}
+    [[nodiscard]] std::string HoleNamen() const { return name_;} //const & schreibgeschützt?
     [[nodiscard]] TokenFarbe Holetoken() const { return token_;}
     static int HolNächstenZug() {
       int spalte{};
@@ -186,14 +189,14 @@ private:
 
   class Spielerkollektion{
   public:
-    explicit Spielerkollektion(Players players) : players_(std::move(players)) {}  
+    Spielerkollektion(Players players) : players_(std::move(players)) {}  
 
-    const Spieler& HolNächstenSpieler() {
+    [[nodiscard]] const Spieler& HolNächstenSpieler() {
       const auto wechsel = wechsel_++ % players_.size();
       return players_.at(wechsel);
     }
   
-    Spieler GetPlayer(const TokenFarbe token) const {
+    [[nodiscard]] Spieler GetPlayer(const TokenFarbe token) const {
       const auto spielerIterator = std::ranges::find_if(players_, [token](const Spieler& spieler) {
         return spieler.Holetoken() == token;
       });
@@ -215,24 +218,22 @@ public:
 
   [[nodiscard]] SpielStatus HoleSpielstatus() const { return spielstatus_;}
   
-  std::optional<TokenFarbe> Spielen() {
+  [[nodiscard]] std::optional<TokenFarbe> Spielen() {
     spielstatus_ = SpielStatus::Aktiv;
     do{
       const auto& spieler = spielerkollektion_.HolNächstenSpieler();
-      std::cout << spieler.HoleNamen() <<"'s Zug " << '\n';
-
       bool kannSetzen{};
       int location{};
       do{
-        location = Spieler::HolNächstenZug();
-        std::cout << spieler.HoleNamen() << " waehlt Spalte " << location << '\n';
+        std::cout << "Waehle Token " << spieler.HoleNamen() << ": ";
+        location = Spieler::HolNächstenZug(); 
 
         kannSetzen = brett_.TryPlaceToken(location, spieler.Holetoken()); //platziert oder nicht und gibt bool zuzrück
 
         if(!kannSetzen) {
-            std::cout << "Kann keine Token mehr in Spalte {} setzen" << location << '\n';
+            std::cout << "Kann keine Token mehr in Spalte " << location << "setzen " << '\n';
         }
-      } while(!kannSetzen); //immer wiederholen wenn kein token eingefügt wurde, bevor ein neuer Gewinner geprüft werden soll
+      } while(!kannSetzen); //immer wiederholen wenn kein token eingefügt wurde, bevor ein neuer Gewinner geprüft werden soll, letzter token wird immer möglich sei zu setzen bevor unentschieden
 
       if(const auto Gewinner = brett_.WerGewonnen(location); Gewinner) {
         spielstatus_ = SpielStatus::RundeEnde;
@@ -252,11 +253,12 @@ private:
   };
 int main(){
   Spielerkollektion spielerkollektion(Players{
-    Spieler{"Viertel", TokenFarbe::Blau},
-    Spieler{"Andre", TokenFarbe::Gelb},
+    Spieler("Viertel", TokenFarbe::Blau),
+    Spieler("Andre", TokenFarbe::Gelb),
   }); //Vektor mit Spieler Objekten als Konstruktor
-  Spiel spiel(10, 10, spielerkollektion);
-  if(const auto ergebniss = spiel.Spielen(); ergebniss){ std::cout << spielerkollektion.GetPlayer(*ergebniss).HoleNamen() << " hat Gewonnen!";}
+  Spiel spiel(10, 10, spielerkollektion); //öffentliche Schnittstelle quasi
+  if(const auto ergebniss = spiel.Spielen(); ergebniss){ std::cout << spielerkollektion.GetPlayer(*ergebniss)
+    .HoleNamen() << " hat Gewonnen!";}
     else { std::cout << "Unentschieden";}
   return 0;
 }
